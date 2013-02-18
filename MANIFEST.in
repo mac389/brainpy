@@ -1,0 +1,7 @@
+include ISIpy.py
+include interspike_interval.py
+include setup.py
+include demo.py
+include simulated.mat
+include simulate_data.py
+include README.txt

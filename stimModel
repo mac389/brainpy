@@ -1,0 +1,15 @@
+from brian.library.random_processes import *
+
+eqs=Equations('dv/dt=-v/tau+I/C : volt')
+eqs+=OrnsteinUhlenbeck('I',mu=1*nA,sigma=2*nA,tau=10*ms)
+
+brain_size=1
+brain = NeuronGroup(N=brain_size, model=eqs, threshold=-40*mV,reset=-60*mV)
+
+trace = StateMonitor(brain,'V',record=True)
+duration= 2*second
+run(duration,report='text')
+
+figure()
+plot(trace.times/ms,trace[0]/mV)
+show()
