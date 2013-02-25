@@ -3,6 +3,7 @@ from numpy import *
 import sortUtils as tech 
 import XKCD as XKCD 
 import matplotlib.pyplot as plt 
+import neuroTools as postdoc
 
 from os import mkdir
 
@@ -25,7 +26,7 @@ from brian.library.random_processes import *
 from scipy.stats import scoreatpercentile, probplot, percentileofscore
 from scipy.stats.mstats import zscore
 
-""" This module takes a DDT file and analyzed the properties of its local field potentials and spike potentials. Each DDT file 
+""" This module takes a DDT file and analyzes the properties of its local field potentials and spike potentials. Each DDT file 
     contains the continuous voltage trace sampled at 20 kHz from one channel of a PLX recording. For further details on converting
     PLX files to DDT or reading DDT files in Python, refer to the documentation in the function read_DDT
     
@@ -63,7 +64,7 @@ from scipy.stats.mstats import zscore
      	                                                                    
 """
 class Recording(object):
-	def __init__(self, filename,verbose=False):
+	def __init__(self, filename,verbose=False, test=True):
 	
 		self.verbose = verbose
 	
@@ -111,7 +112,13 @@ class Recording(object):
 				print 'Filtering between {} and {} Hz'.format(self.parameters['dsp']['lowcut'],self.parameters['dsp']['highcut'])
 				print 'Assuming a sampling rate of {} Hz'.format(self.parameters['dsp']['fs']) 
 
-			self.data['filtered_trace'] = tech.butter_bandpass_filter(self.data['trace'],**self.parameters['dsp'])
+			if not isfile(self.IO['savepath']+'/'+self.IO['name']+'.filtered'):
+				self.data['filtered_trace'] = tech.butter_bandpass_filter(self.data['trace'],**self.parameters['dsp'])
+				with open(self.IO['savepath']+'/'+self.IO['name']+'.filtered','wb') as fid:
+					self.data['filtered_trace'].tofile(fid)
+			else:
+				self.data['filtered_trace'] = fromfile(self.IO['savepath']+'/'+self.IO['name']+'.filtered','float64')	
+			
 			print 'Filtered'
 			self.data['energy'] = self.data['filtered_trace']*self.data['filtered_trace']
 			print 'Energy Calculated'
@@ -129,55 +136,84 @@ class Recording(object):
 		print 'Saved'
 		
 	def populate_fields(self):
+		print 'Getting constants'
 		self.data['constants']={}
-		self.data['constants']['median'] = squeeze(median(self.data['filtered_trace']))
-		self.data['constants']['mad'] = squeeze(median(absolute(self.data['energy']-median(self.data['energy']))))
-		self.data['constants']['threshold']= squeeze(16*self.data['constants']['mad']) #Artifacts will be their own cluster
-		self.data['spiketimes'] = tech.detect_spikes(self.data['energy'],self.data['constants']['threshold'])
+		
+		print 'Getting threshold'
+		if not isfile(self.IO['savepath']+'/constants.json'):
+			self.data['constants']['median'] = squeeze(median(self.data['filtered_trace']))
+			self.data['constants']['mad'] = squeeze(median(absolute(self.data['energy']-median(self.data['energy']))))
+			self.data['constants']['threshold']= squeeze(16*self.data['constants']['mad']) #Artifacts will be their own cluster
+			
+			with open(self.IO['savepath']+'/constants.json','wb') as f:
+				json.dump(self.data['constants'],f)
+			print 'Saved parameters to its JSON file'
+		else:
+			print 'Loading constants from file'
+			self.data['constants'] = json.load(open(self.IO['savepath']+'/constants.json','rb'))
+		
+		print 'Got threshold'
+		print 'Getting spiketimes'
+		if not isfile(self.IO['savepath']+'/'+self.IO['name']+'.spiketimes'):
+			self.data['spiketimes'] = tech.detect_spikes(self.data['energy'],self.data['constants']['threshold'])
+			with open(self.IO['savepath']+'/'+self.IO['name']+'.spiketimes','wb') as fid:
+				self.data['spiketimes'].tofile(fid)
+		else:
+			print 'Loading spiketimes from file'
+			self.data['spiketimes'] = fromfile(self.IO['savepath']+'/'+self.IO['name']+'.spiketimes','float64')
+		print 'Got and saved spiketimes'
+		print 'Getting ISI and waveforms'
 		
 		self.data['ISI'] = diff(self.data['spiketimes'])
-		self.data['wfs'] = tech.get_waveforms(self.data['filtered_trace'],self.data['spiketimes'],**self.parameters['trace_analysis'])	
-		print 'Got waveforms'
+		self.data['wfs'] = tech.get_waveforms(self.data['filtered_trace'],self.data['spiketimes'],**self.parameters['trace_analysis'])
+		with open(self.IO['savepath']+'/'+self.IO['name']+'.waveforms','wb') as fid:
+			self.data['wfs'].tofile(fid)
+		print 'Got and saved waveforms'
 		self.data['PCA'] = dict(zip(['eigvals','projections','eigvecs'],tech.princomp(self.data['wfs'][::self.skip],numpc=self.parameters['PCs'])))
 		print 'Got PCs'
 		self.data['clustering'] = tech.cluster(transpose(self.data['PCA']['projections']))
 		print 'Got Clusters'
 		
 		
-	def save(self):
+	def save(self): #God this I/O is a mess
 	# First, save data
 		fmt = '%.4f'
 		if not isdir(self.IO['savepath']):
 			mkdir(self.IO['savepath'])
 		
+		'''
 		#For each, save spiketimes and PCs to their own files
-		savetxt(self.IO['savepath']+'/'+self.IO['name']+'.spiketimes',self.data['spiketimes'],delimiter='\t')
+		savetxt(self.IO['savepath']+'/'+self.IO['name']+'.txt.spiketimes',self.data['spiketimes'],delimiter='\t')
 		print 'Saved spiketimes to text file'
+		'''
 		
 		for key,value in self.data['PCA'].iteritems():
 			savetxt(self.IO['savepath']+'/'+self.IO['name']+'.'+key,value,fmt=fmt,delimiter='\t')
 			print 'Saved principal components %s to text file' % key
 			
-		for k in self.data['clustering']: #I know this is nested- still such a hack
-			for key,value in self.data['clustering'][k].iteritems():
+		for cluster in self.data['clustering']: 
+			for key,value in cluster.iteritems():
 				if key == 'clustermap':
 					fmt = '%u'
 				savetxt(self.IO['savepath']+'/'+self.IO['name']+'.'+key,squeeze(value),fmt=fmt,delimiter='\t')
 				print 'Saved clustering components %s to text file' % key
 		
+		'''
 		with open(self.IO['savepath']+'/constants.json','wb') as f:
 			json.dump(self.data['constants'],f)
+		
 					
 		for key,value in self.data.iteritems():
-			if key not in ['PCA','clustering','trace','filtered_trace','energy','constants','wfs']:
+			if key not in ['PCA','clustering','trace','filtered_trace','energy','ISI' ]:
 				#It's better not to save the waveforms, it takes up so much memory, 
 				#easier to dynamically generate them
 				savetxt(self.IO['savepath']+'/'+self.IO['name']+'.'+key,value,delimiter='\t')
 				print 'Saved %s to text file' % key	
-								
+										
 		with open(self.IO['savepath']+'/parameters.json','wb') as f:
 			json.dump(self.parameters,f)
 		print 'Saved parameters to its JSON file'
+ 		'''
 	# Then, save figures
 		print 'Saving Voltage Trace'
 		self.save_voltage_trace()
@@ -214,15 +250,6 @@ class Recording(object):
 		spike_panel.axhline(y=0.25*self.data['constants']['threshold'],linewidth=1,color='r',linestyle='--')
 		spike_panel.axhline(y=-0.25*self.data['constants']['threshold'],linewidth=1,color='r',linestyle='--')
 		
-		'''
-		energy_panel = fig.add_subplot(313)
-		energy_panel.plot(self.data['energy'][(70*start):(80*start):10],'b')
-		energy_panel.set_xlabel(r'time $\left(ms\right)$')
-		energy_panel.set_ylabel(r'Energy $\left(mV^{2}\right)$')
-		
-		#Draw threshold
-		energy_panel.axhline(y=self.data['constants']['threshold'],linewidth=1,color='r',linestyle='--')
-		'''	
 		if xkcd:
 			for panel in [trace_panel,spike_panel]:
 				XKCD.XKCDify(trace_panel, expand_axes=True)
@@ -233,13 +260,21 @@ class Recording(object):
 		fig = plt.figure()
 		waveform_panel = fig.add_subplot(211)
 		waveform_panel.plot(self.data['wfs'][::self.skip])
-		plt.show()
+		start = 20000
+		stop = 40000
+		energy_panel = fig.add_subplot(212)
+		energy_panel.plot(self.data['energy'][(70*start):(80*start):10],'b')
+		energy_panel.set_xlabel(r'time $\left(ms\right)$')
+		energy_panel.set_ylabel(r'Energy $\left(mV^{2}\right)$')
+		
+		#Draw threshold
+		energy_panel.axhline(y=self.data['constants']['threshold'],linewidth=1,color='r',linestyle='--')
+		plt.savefig(self.IO['savepath']+'/'+self.IO['name']+'_waveforms.png',dpi=300)
 		
 	def save_spike_validation(self):
 		#find biggest cluster
-		final_key = sorted(self.data['clustering'].keys())[-1]
-		final_cluster = self.data['clustering'][final_key]
-		color = ['0.5','r','k'] #Assume there won't be more than noise and two units
+		final_cluster = sorted(self.data['clustering'],key=lambda attempt: attempt['silhouettes'])[-1]
+		color = ['r','k','g','b','m','DarkOrange','purple'] #Assume there won't be more than noise and two units
 		fig = plt.figure()
 		cluster_panel = fig.add_subplot(211)
 		clusterx,clustery = tech.toxy(final_cluster['centroids'])
@@ -247,7 +282,7 @@ class Recording(object):
 		hold(True)
 		nclusters = max(final_cluster['clustermap'])
 		hold(True)
-		for n in range(nclusters):
+		for n in range(nclusters+1):
 			x = self.data['PCA']['projections'][0,:][final_cluster['clustermap'] == n]
 			y = self.data['PCA']['projections'][1,:][final_cluster['clustermap'] == n]
 			cluster_panel.scatter(x,y,marker='+', c=color[n])
@@ -255,6 +290,7 @@ class Recording(object):
 			del y
 		cluster_panel.set_ylabel('PC2')
 		cluster_panel.set_xlabel('PC1')
+		postdoc.adjust_spines(cluster_panel,['bottom','left'])
 		
 		waveform_panel = fig.add_subplot(212)
 		for n in range(nclusters):
@@ -262,6 +298,7 @@ class Recording(object):
 		
 		waveform_panel.set_xlabel('Time (us)')
 		waveform_panel.set_ylabel('Voltage (uV)')
+		postdoc.adjust_spines(waveform_panel,['bottom','left'])
 		'''
 		isi_panel = fig.add_subplot(212)
 		isi_panel.hist(self.data['ISI'],bins=200,range=[0,300], normed=True)
@@ -269,6 +306,7 @@ class Recording(object):
 		zoomed_isi.hist(self.data['ISI'],range=[0,20], normed=True)
 		isi_panel.set_xlabel('time (ms)')
 		isi_panel.set_ylabel('density')
+		postdoc.adjust_spines(isi_panel,['bottom','left'])
 		'''
 		plt.savefig(self.IO['savepath']+'/'+self.IO['name']+'_sorting.png',dpi=300)
 		plt.close()

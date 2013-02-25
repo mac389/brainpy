@@ -10,10 +10,10 @@ files = listdir(dirname)
 files = [file for file in files if file.endswith('ddt')]
 '''
 
-filename = '/Volumes/My Book/Rat/12262012/122602012/continuous/ch044.ddt'
-filename = '/Volumes/My Book/Rat/010113_real/continuous/ch043.ddt'
-#filename = '/Volumes/My Book/Rat/010113_real/continuous/ch007.ddt'
-test = '/Volumes/My Book/mydata3.ddt'
+#filename = '/Volumes/My Book/Rat/12262012/continuous/ch043.ddt'
+#filename = '/Volumes/My Book/Rat/010113_real/continuous/ch043.ddt'
+filename = '/Volumes/My Book/Rat/010113_real/continuous/ch032.ddt'
+#test = '/Volumes/My Book/mydata3.ddt'
 
 r =Recording(filename,verbose=False)
 del r

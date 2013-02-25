@@ -1,57 +1,75 @@
 import sortUtils as tech
-
-from os import listdir
-from os.path import isfile, splitext
-
+import cPickle
+from os import listdir, makedirs
+from os.path import isfile, splitext, isdir, exists, getsize
+from termcolor import cprint
 from numpy import *
-
-tetrode_map = [[33,35,36,52,38,37,34],[54,43,39,42,41,40],[48,44,47,45,50],[49,50,46,51],
+import cPickle
+#All channels < 54
+electrode = [[33,35,36,53,38,37,34],[54,43,39,42,41,40],[48,44,47,45],[49,50,46,51],
 			[4,14,1,16,2,15,3,30],[32,10,13,28,31,11,12,29],[27,6,9,8,26,23,24,25],[7,17,20,19,22,5,18,21]]
-
 lookback = 100 #microseconds
 lookahead = 100
+cut_duration = lookahead + lookback
+MINIMUM_AMPLITUDE = 4
 
-
-
-
-basepath='/Volumes/My Book/Rat/010113_real/continuous'
-recording_name = '010113'
-files = [file for file in listdir(basepath) if file.endswith('ddt')]
-'''
-for trode in tetrode_map:
-	print 'Loading tetrode with channels',trode
-	channel_names = [basepath+'/'+'ch%03d.ddt' % channel for channel in trode]
-	channel_names = [channel_name for channel_name in channel_names if isfile(channel_name)]
-	for channel_name in channel_names:
-		name,_ = splitext(channel_name)
-		tracename = name +'.filtered_traces'
-		if not isfile (tracename):
-			print 'No filtered trace found for %s' % channel_name				
-			print 'Filtering -->'
-			tech.save_filtered_trace(channel_name)
-			print 'Filtered and'
-			print '\tSaved as %s' %(tracename)
-	print '\t\t-> Saved'
-	duration = len(traces[0])
-	#The immediately preceding line helps make the matrices sparse so I can include more time samples
-	for channel in trode:
-		print 'Loading spikes from channel %d' % channel
-		filename = 'ch{0:03}/ch{0:03}.spiketimes'.format(channel)
-		spiketimes = loadtxt(filename,delimiter='\t')
-		for spiketime in spiketimes[::1000]: #have to down sample
-			start = spiketime-lookback
-			stop = spiketime + lookahead
-			if start > 0 and stop < duration: 
-				snippets = ravel(array([trace[start:stop] for trace in traces]))
-				print snippets
-	'''
-	
-trode = tetrode_map[0]
-channel_names = filter(lambda name: isfile(name), [basepath+'/'+'ch%03d.filtered_traces' % channel for channel in trode])
-traces = map(memmap,channel_names)
-for channel in trode:
-	print 'Loading spike from channel %d ' % channel
-	filename = 'ch{0:03}/ch{0:03}.spiketimes'.format(channel)
-	spiketimes = memmap(basepath+'/'+filename)
-	
+#Summary: Recording (as DDT) -> 8-trode culled waveforms for PCA
+basedir = '/Volumes/My Book/Rat'
+skipdirs = ['11302012','11312012','010113_real']
+subdirs = [name for name in listdir(basedir) if isdir(basedir+'/'+name) and name not in skipdirs]
+for subdir in subdirs:
+	#-- Clear the screen
+	print chr(27) + '[2J'
+	#-------------------
+	cprint('Entering %s'%subdir,'magenta')
+	basepath = basedir+'/'+subdir+'/continuous'
+	for shank,trode in enumerate(electrode):
+		cfg_name = basepath+'/shank%d.parameters' % shank
+		FILTERED = [basepath+'/'+'ch%03d.filtered' % channel for channel in trode]
+		UNFILTERED = [basepath+'/'+'ch%03d.ddt' % channel for channel in trode]
+		print '---'
+		# Process only good channels to limit RAM consumption
+		if exists(cfg_name):
+			good_channel,THRESHOLDS = cPickle.load(open(cfg_name,'rb'))
+			traces = [fromfile(tracename,dtype='float64') for tracename,thr in zip(FILTERED,THRESHOLDS) if thr > MINIMUM_AMPLITUDE]
+		else:
+			cprint('Loading filtered traces','red')
+			traces = []
+			for tracename in FILTERED:
+				if isfile(tracename):
+					print '\tLoading %s'%tracename
+					traces.append(fromfile(tracename,dtype='float64'))
+				else:
+					CONTINUOUS = tech.switch_type(tracename,'ddt')
+					print '\tFiltering from voltage trace -> Loading %s'% CONTINUOUS
+					traces.append(tech.save_filtered_trace(CONTINUOUS,show=True))
+			cprint('Loaded','green')
+			print '\nDetermining live channels.'	
+			THRESHOLDS = [tech.threshold(trace) for trace in traces] 		
 		
+		good_channels = [channel for i,channel in enumerate(trode) if THRESOLDS[i]>MINIMUM_AMPLITUDE]
+		for channel in trode:
+			cprint('%d '%channel,'red' if channel not in good_channels else 'green', end='')
+		print '---'		
+		WAVENAMES = [basepath+'/shank%d_channel%d.waveforms'%(shank,channel) for channel in good_channels]
+		for contact,channel in enumerate(good_channels): 
+			#Contact is the index. For example the 1st contact on the 1st shank is channel 33
+			if exists(WAVENAMES[contact]):
+				cprint('Already analyzed channel %02d on shank %d'%(channel,shank),'magenta')
+				continue
+			else:
+				spikename = basepath+'/ch{0:03}.spiketimes'.format(channel)
+				if exists(spikename) and getsize(spikename)>1000: #Double check- reall spike times files will be more than 1 MB
+					spiketimes = fromfile(spikename,'int') 
+				else: 
+					spiketimes = tech.detect_spikes(traces[contact],thresh[contact])
+					spiketimes.tofile(spikename)
+				cprint('Extracting waveforms','red')
+				wfs=[tech.get_waveforms(traces[contact],spiketimes) for channel in good_channels]
+				wfs = vstack(tuple(wfs))									
+				cprint('\tExtracted','green')
+				wfs.tofile(wavenames[contact]);print 'Saved %s'%WAVENAMES[contact];print '---'
+				cfg['wavefiles'].append(WAVENAMES[contact])
+				del wfs
+	del traces
+	cPickle.dump(cfg,open(cfg_name,'wb'))

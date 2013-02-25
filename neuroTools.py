@@ -90,7 +90,7 @@ def adjust_spines(ax,spines):
         if loc in spines:
             spine.set_position(('outward',10)) # outward by 10 points
             spine.set_smart_bounds(True)
-            spine.set_linewidth(3)
+            #spine.set_linewidth(3)
         else:
             spine.set_color('none') # don't draw spine
 
