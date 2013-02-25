@@ -15,11 +15,21 @@ Flow of Analysis for one Multi-unit Recording
                              PLX -----|---------> {events.json, metadata.json}
                                       |
                                       |---------> Continuous/
-                                      
+                                                       |
+                                                       |
+                                                       |
+                                                       V
+             import sortUtils.py as tech ------->  8trode.py  <-------- import neuroTools as postdoc
+                                                       |
+                                                       |
+                                                       |
+                                                       V
+                                                  Analysis.py
+                                                  
       The CONTINUOUS directory contains one binary file for each channel used in the recording. The binary file is in 
       the [DDT format] [1] 
       This is the entry point for other file formats.
       
       (More coming soon ...)
 
-      [1]: http://hardcarve.com/wikipic/PlexonDataFileStructureDocumentation.pdf/ "DDT format"
+      [1]: http://hardcarve.com/wikipic/PlexonDataFileStructureDocumentation.pdf/       "DDT format"
