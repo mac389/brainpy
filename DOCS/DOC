@@ -1,64 +1,44 @@
-	
-							 spiketime		
-								^
-					  lookback  | lookahead   
-							|   |  |
-							V	|  V
-						  |-----^----|	
-			  trace | ~~~~|~~~~~~~~~~|~~~~~~~						 
-			  trace | ~~~~|~~~~~~~~~~|~~~~~~~ 							cut_duration=	
-			  trace | ~~~~|~~~~~~~~~~|~~~~~~~					   (lookback + lookahead) 
-			  trace | ~~~~|~~~~~~~~~~|~~~~~~~							------------>
-			  trace | ~~~~|~~~~!!!~~~|~~~~~~~	 Extract snippet	   |   |--^--|   Reshape to	   
-			  trace | ~~~~|~~~~~~~~~~|~~~~~~~	----------------->	   |   |-----|  ------------> |-^-------!!!-----|
-			  trace | ~~~~|~~~~~~~~~~|~~~~~~~						   |   |-!!!-|	vector               length = 
-			  trace | ~~~~|~~~~~~~~~~|~~~~~~~						   |   |-----|				cut_duration*trode  
-						  |----------|		 						   V										|	
-						  											len(trode)									|	
-						  																						|
-											Form a matrix from all snippets.									|
-											One snippet for each time the voltage								|
-											one a channel crosses the thresdhold								|	
-			----------------------------------------------------------------------------------------------------|
-			|
-			V	  			length = 
-					  cut_duration * trode
-						 (units of time
-						 ----------------->
-					   |  		...
-			One row	   |  --^-------!!!-----
-			for each   |  -----!---!----^---		 Dimensionality reduction
-			spike	   |  		...			         -------------------------->  For PCA each ROW should be a NEURON
-			for each   |  		...							with PCA			  (The general term is observation.) 
-			channel	   |  --!!-------^------								      Each COLUMN should be a TIMESTAMP.
-					   V   													      (The general term is variable.)
-					   
-					   
-			   In this schematic, PCA can be viewed as finding the shortest yet most informative horizontal axis.
+
+	        spiketime		
+		    ^
+          lookback  | lookahead   
+	      |     |    |
+	      V	    |    V
+	      |-----^----|	
+  trace | ~~~~|~~~~~~~~~~|~~~~~~~						 
+  trace | ~~~~|~~~~~~~~~~|~~~~~~~ 			cut_duration=	
+  trace | ~~~~|~~~~~~~~~~|~~~~~~~                   (lookback + lookahead) 
+  trace | ~~~~|~~~~~~~~~~|~~~~~~~			     ------------>
+  trace | ~~~~|~~~~!!!~~~|~~~~~~~      Extract snippet	    |   |--^--|   Reshape to	   
+  trace | ~~~~|~~~~~~~~~~|~~~~~~~     ----------------->    |   |-----|  ------------>     |-^-------!!!-----|
+  trace | ~~~~|~~~~~~~~~~|~~~~~~~			    |   |-!!!-|	   vector               length = 
+  trace | ~~~~|~~~~~~~~~~|~~~~~~~		            |   |-----|			  cut_duration*trode  
+              |----------|		 		    V					    |	
+			  				len(trode)			            |	
+			  									    |
+					Form a matrix from all snippets.       			    |
+			        	One snippet for each time the voltage			    |
+					one a channel crosses the thresdhold	 	            |	
+    ------------------------------------------------------------------------------------------------|
+    |
+    V   length = cut_duration * trode (units of time)
+	     ----------------->
+	   |  		...
+One row	   |  --^-------!!!-----
+for each   |  -----!---!----^---    Dimensionality reduction
+spike	   |  		...         -------------------------->  For SVD each ROW should be a NEURON
+for each   |  		...		with SVD	         (The general term is observation.) 
+channel	   |  --!!-------^------				 Each COLUMN should be a TIMESTAMP.
+           V   							 (The general term is variable.)
+		   
+		   
+ In this schematic, SVD can be viewed as finding the shortest yet most informative horizontal axis.
+ Cluster on a reduced representation of the data that SVD finds. ALGORITHM for generating the reduced representation:
+
+  1. Decompose the above matrix into the triplet U,S,V.H. Call the reduced representation A*. 
+  2. Set some entries in S to zero. (I include as many singular values as need to represent 95% of the data.)
+     Call the reduced S, S*
+  3. A* <-- US*V
+  4. A* will have the same shape as A. Get the reduced version by ignoring the rows that are zero.
 		
-					Cluster on most informative subspace of the data's eigenspace. My default is to use the first
-					three principal components (PCs). This schematic begins with the projection of a snippet onto
-					the first two principal components. 
-					
-					
-					  Output of tech.princomp
-								|
-								|
-				   --------------------------
-				   |			|			|
-				   V			|		   V
-			   Eigenvalues  	|	   Eigenvectors	
-						  		V
-							 PCs 		
-						 ------------>		
-						 | 						Cluster   			Pycluster expects the
-	 	 Projections	 |				--------------------->	    ROWS to correspond to PCs
-		(Neurons)		 |					(Must transpose)		(well genes, it was designed for microarrays)
-						 |											and COLUMNS to correspond to Neurons
-						 V 											(the documentations says "experiments")
-			  N.B. I only use the middle element
-			  that tech.princomp returns. That's why	 
-			  there is a [1] in the list comprehension							  
-			  below. It is the second element, if you 		 
-			  count from 0.											
-												  															
+							  								
