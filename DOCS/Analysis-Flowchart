@@ -1,1 +1,11 @@
-Analysis Flowchart
+Approach to analyzing the behavior of multiple neurons
+=======================================================
+
+                                                 Trace
+                                                   |
+                                                   |
+                                        -------------------
+                                        |                 |
+                                        |                 |
+                                        V                 V
+                            Local Field Potentials    Series of Action Potentials
