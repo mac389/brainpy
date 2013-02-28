@@ -19,6 +19,9 @@ from sklearn.metrics import silhouette_score
 
 from time import time
 from matplotlib import rcParams
+
+from numpy.random import random
+
 rcParams['text.usetex'] = True
 def update_progress(progress):
     print '\r[{0}] {1}%'.format('#'*(progress/10), progress)
@@ -48,7 +51,11 @@ def get_waveforms(data,spiketimes,lookback=100,lookahead=100):
 		ret[:,spiketimes<lookback]=0
 		ret[:,spiketimes+lookahead>=len(data)]=0
 		return ret
-		
+
+def get_channel_id(filename):
+	name,_ = splitext(filename)
+	return str(int(name[-3:]))
+	
 '''
 def get_waveforms(data,spiketimes,lookback=100,lookahead=100,skip=1000, report=True):
 	answer = zeros((1+len(spiketimes)/skip,(lookback+lookahead)))
@@ -61,6 +68,12 @@ def get_waveforms(data,spiketimes,lookback=100,lookahead=100,skip=1000, report=T
 			answer[i,:] = data[(spiketimes[i]-lookback):(spiketimes[i]+lookback)]
 	return answer
 '''
+
+def add_noise(data,amplitude=10,shape=(200,3000)):
+	row,col = data.shape
+	res = zeros((row+shape[0],col+shape[1]))
+	res[-shape[0]:-shape[1]:] = amplitude*random(size=shape)
+
 
 def switch_type(inputfile,desired):
 	name,_ = splitext(inputfile)
@@ -90,6 +103,7 @@ def save_filtered_trace(filename,lowcut=300,highcut=7000,sampling_rate=20000,sho
 		return filtered_data
 
 def princomp(A,numpc=3):
+	print A.shape
 	# computing eigenvalues and eigenvectors of covariance matrix
 	M = (A-mean(A.T,axis=1)).T # subtract the mean (along columns)
 	[latent,coeff] = linalg.eig(cov(M))
@@ -117,41 +131,50 @@ def to_full_matrix(til_data):
 		answer[idx,:span] = til_data[idx]
 	return answer
 
+def find_sing_val_cutoff(data,cutoff=0.95):
+	data /= data.sum()
+	return where(cumsum(data)>0.95)[0][0]
+
+def scree(eigVals,npc=50):
+	#Assume the list is all of the eigenvalues
+	rel = cumsum(eigVals)/eigVals.sum()
+	x = arange(len(rel))+1
+	
+	fig = plt.figure()
+	ax = plt.add_subplot(111)
+	ax.bar(x,rel,width=0.5)
+	postdoc.adjust_spines(ax,['bottom','left'])
+	ax.set_xlabel('Eigenvector')
+	ax.set_ylabel('Fraction of variance')
+	plt.show()
+
 def cluster(data, threshold = 0.5,method='sk', preprocess=True):
 	length = len(data)
+	print data.shape
 	nclus = 2
-	nclusmax=8
-	sil = [array([-1])]
+	nclusmax=15
+	sil = [-1]
 	models=[]
 	if preprocess==True:
 		print 'Preprocessing by scaling each row by its range'
 		data /= (amax(data,axis=0)-amin(data,axis=0))[newaxis,:]
-		print 'Now to cluster'
-	
+		print 'Now to cluster'	
 	if method == 'sk':
 		print 'Clustering using Scikits K-means implementation'
 		print "This option returns a tuple of"
 		print "\t\t (kmeans object, silhouette coefficients)"
-		while average(sil[-1]) < threshold and nclus < nclusmax:
-			t0=time()
-			print average(sil[-1]), nclus
+		while nclus < nclusmax: #average(sil[-1]) < threshold and
 			model = KMeans(init='k-means++',n_clusters=nclus) 
 			#Assume data is propery preprocessed
 			model.fit(data)
 			labels = model.labels_
 			#<-- can only sample this in chunks of 100
 			print data.shape
-			print 'Calculating chunks of silhouette_score for sake of time'
-			partition = 50
-			interim = zeros((partition,1))
-			for i in range(partition):
-				print '\t',i				
-				interim[i] = silhouette_score(data[i::partition],labels[i::partition],metric='euclidean')
-			sil.append(interim) 
+			print 'Calculating silhouette_score '
+			sil.append(silhouette_score(data,labels,metric='euclidean')) 
 			models.append(model)
+			print 'For %d clusters, the silhouette coefficient is %.03f'%(nclus,sil[-1])
 			nclus += 1
-			print 'Moving on'
-			print time()-t0
 		return (models,sil)
 	elif method == 'pyclus':
 		import Pycluster as pc
@@ -162,7 +185,7 @@ def cluster(data, threshold = 0.5,method='sk', preprocess=True):
 		sil_co = [1]
 		#Assume 
 		while sil_co_one > threshold and nclus < nclusmax:
-			print nclus
+			print 'No. of clus: %d'%nclus
 			print 'Before kcluster'
 			clustermap,_,_ = pc.kcluster(data,nclusters=nclus,npass=50)
 			print 'After kcluster'
@@ -206,6 +229,7 @@ def cluster(data, threshold = 0.5,method='sk', preprocess=True):
 			nclus += 1
 			sil_co.append( s/length)
 			sil_co_one = s/length
+			print 'Sil co %.02f'%sil_co_one
 			res.append({'clustermap':clustermap,
 						'centroids':centroids,
 						 'distances':m,
@@ -226,22 +250,27 @@ def butter_bandpass(lowcut,highcut,fs,order=2):
 	b,a = butter(order, [low, high], btype='band')
 	return b,a
 
-def visualize(data,clusters,spiketimes,eiglist,nclus=None):
+def low_d(u,s,v,cutoff=2):
+	sigma = diag(s)
+	sigma[cutoff:][cutoff:] = 0
+	print u[:,:len(s)].shape
+	print sigma.shape
+	a_star = dot(u[:,:len(s)],sigma)
+	a_star = dot(a_star,v[:,:cutoff])
+	return a_star
+
+def visualize(data,clusters,spiketimes=None,eiglist=None,nclus=None,savename='res',multi=False):
 	kmeans,silhouettes = clusters
 	sil_cos = map(average,silhouettes)
 	#pick out the 
-	if not nclus:
-		nclus = 2+argmax(sil_cos)
-	best = kmeans[argmax(sil_cos)]
-	
+	best = kmeans[argmax(sil_cos)-1]
+	nclus = best.n_clusters if not nclus else nclus
 	fig = plt.figure()
 	plt.subplots_adjust(left=0.1, right=0.9, bottom=0.1, top=.97)
 	
-	
 	#Clusters of waveforms projected onto the first two principal components
 	ax = fig.add_subplot(2,2,1)
-	ax.set_axis_bgcolor('none')
-	ax.set_aspect('equal')
+	ax.set_axis_bgcolor('white')
 	colors = ['#4EACC5', '#FF9C34', '#4E9A06']
 	labels_ = best.labels_
 	centers = best.cluster_centers_
@@ -249,18 +278,18 @@ def visualize(data,clusters,spiketimes,eiglist,nclus=None):
 	for n,col in zip(range(nclus),colors):
 		my_members = labels_ == n 
 		cluster_center = centers[n]
-		ax.plot(data[my_members,0],data[my_members,1],'w',markerfacecolor=col,marker='.')
+		ax.plot(data[my_members,0],data[my_members,1],'w',markerfacecolor=col,marker='.', markersize=6)
 		hold(True)
-		ax.plot(cluster_center[0],cluster_center[1],'o',markerfacecolor=col,markeredgecolor='k',markersize=6)
+		ax.plot(cluster_center[0],cluster_center[1],'o',markerfacecolor=col,markeredgecolor='k',markersize=8)
 	postdoc.adjust_spines(ax,['bottom','left'])
 	ax.set_ylabel('PC2')
 	ax.set_xlabel('PC1')
 	ax.tick_params(direction='in')
-	yerr = [2*std(silhouette) for silhouette in silhouettes]
-	
+		
 	sils = fig.add_subplot(2,2,2)
 	sils.set_axis_bgcolor('none')
-	line=sils.errorbar(range(len(sil_cos))[2:],sil_cos[2:],yerr=yerr[2:], fmt='--o', capsize=8, clip_on=False)
+	line, =sils.plot(range(len(sil_cos))[2:],sil_cos[2:],'--.')
+	line.set_clip_on(False)
 	sils.tick_params(direction='in')
 	sils.axhline(y=0.5,color='r',linestyle='--')
 	postdoc.adjust_spines(sils,['bottom','left'])
@@ -269,39 +298,48 @@ def visualize(data,clusters,spiketimes,eiglist,nclus=None):
 	sils.set_ylabel('Silhouette coefficient')
 	sils.set_xlabel('Number of clusters')
 	
-	isi = fig.add_subplot(2,2,4)
-	_,_,patches=isi.hist(diff(spiketimes),bins=200,range=(0,1000), histtype='stepfilled')
-	postdoc.adjust_spines(isi,['bottom','left'])
-	isi.tick_params(direction='in')
-	isi.set_axis_bgcolor('none')
-	isi.set_ylabel('Count')
-	isi.set_xlabel(r'ISI $(ms)$')
-	plt.setp(patches,'facecolor',colors[1])
+	if spiketimes:
+		isi = fig.add_subplot(2,2,4)
+		_,_,patches=isi.hist(diff(spiketimes),bins=200,range=(0,1000), histtype='stepfilled')
+		postdoc.adjust_spines(isi,['bottom','left'])
+		isi.tick_params(direction='in')
+		isi.set_axis_bgcolor('none')
+		isi.set_ylabel('Count')
+		isi.set_xlabel(r'ISI $(ms)$')
+		plt.setp(patches,'facecolor',colors[1])
+		
+		short_isi = fig.add_axes([0.77, 0.26, 0.15, 0.20])
+		short_isi.set_axis_bgcolor('none')
+		_,_,spatches=short_isi.hist(diff(spiketimes),bins=200,range=(10,20), histtype='stepfilled')
+		postdoc.adjust_spines(short_isi,['bottom','left'])
+		short_isi.tick_params(direction='in')
+		short_isi.set_ylabel('Count')
+		short_isi.set_xlabel(r'ISI $(ms)$')
+		short_isi.set_xticklabels(arange(0,10)[::2])
+		plt.setp(spatches,'facecolor',colors[1])
 	
-	short_isi = fig.add_axes([0.77, 0.26, 0.15, 0.20])
-	short_isi.set_axis_bgcolor('none')
-	_,_,spatches=short_isi.hist(diff(spiketimes),bins=200,range=(10,20), histtype='stepfilled')
-	postdoc.adjust_spines(short_isi,['bottom','left'])
-	short_isi.tick_params(direction='in')
-	short_isi.set_ylabel('Count')
-	short_isi.set_xlabel(r'ISI $(ms)$')
-	short_isi.set_xticklabels(arange(0,10)[::2])
-	plt.setp(spatches,'facecolor',colors[1])
-	
-	eigfxns = fig.add_subplot(2,2,3)
-	eigfxns.set_axis_bgcolor('none')
-	eigfxns.tick_params(direction='in')
-	#Assume 6 eigenfunctions
-	nfxns =6
-	span = len(eiglist[0,:])/2
-	for i in range(nfxns):
-		eigfxns.plot(arange(-span,span),i+eiglist[i,:],'b',linewidth=2)
-		hold(True)
-	postdoc.adjust_spines(eigfxns,['bottom'])
-	eigfxns.set_xlabel(r'Time from spike peak $\left(\mu sec\right)$')
-	#draw_sizebar(eigfxns)
+	if eiglist.size:
+		print eiglist.shape
+		eigfxns = fig.add_subplot(2,2,3)
+		eigfxns.set_axis_bgcolor('none')
+		eigfxns.tick_params(direction='in')
+		#Assume 6 eigenfunctions
+		nfxns =6
+		span = len(eiglist[0,:])/2
+		x = arange(2*span) if multi else arange(-span,span)
+		for i in range(nfxns):
+			eigfxns.plot(x,i+eiglist[i,:],'b',linewidth=2)
+			hold(True)
+		postdoc.adjust_spines(eigfxns,['bottom'])
+		if multi:
+			eigfxns.set_xlabel(r' $\left(\mu sec\right)$')
+		else:
+			eigfxns.set_xlabel(r'Time from spike peak $\left(\mu sec\right)$')
+		eigfxns.set_ylabel(r'Eigenfunctions')
+		#draw_sizebar(eigfxns)
 
 	plt.tight_layout()
+	plt.savefig(savename+'png')
 	plt.show()
 
 def butter_bandpass_filter(data,*args, **kwargs):
