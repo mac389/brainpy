@@ -4,8 +4,22 @@ Approach to analyzing the behavior of multiple neurons
                                                  Trace
                                                    |
                                                    |
-                                        -------------------
-                                        |                 |
-                                        |                 |
-                                        V                 V
-                            Local Field Potentials    Series of Action Potentials
+                                        ----------------------
+                                        |                    |
+                                        |                    |
+                                        V                    V
+                             Local Field Potentials    Action Potentials
+                             (Continuous Functions)     (Time Series)
+                                        |                    |
+                           Power Spectrum, Coherence       Raster
+                                        |                    |                                                                                     
+                                         \                  / \
+                                           \              /     \
+                                             \          /        \----------------------|
+                                               \      /                                 |
+                                                 \  /                                   |
+                                                   V                                    V    
+                                       Spike-Triggered Average and            Lempel Ziv Complexity,
+                                       Covariance of the the LFP           Interspike Interval Distance,
+                                                                        Causal State Splitting Reconstuction
+                                                                              Granger Causality
