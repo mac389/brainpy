@@ -13,11 +13,6 @@ from zlib import compress
 matplotlib.rcParams['xtick.direction'] = 'out'
 matplotlib.rcParams['ytick.direction'] = 'out'
 
-def from_iterable(iterables):
-    # chain.from_iterable(['ABC', 'DEF']) --> A B C D E F
-    for it in iterables:
-        for element in it:
-            yield element
  
 #Smooth from Scipy Cookbook
 import numpy
@@ -28,85 +23,6 @@ def LZC(data): #Data must be zscored for this and the periodic trend removed; ot
 def grouper(iterable, n, fillvalue=None):
     args = [iter(iterable)] * n
     return izip_longest(*args, fillvalue=fillvalue)
-
-def smooth(x,window_len=11,window='hanning'):
-    """smooth the data using a window with requested size.
-    
-    This method is based on the convolution of a scaled window with the signal.
-    The signal is prepared by introducing reflected copies of the signal 
-    (with the window size) in both ends so that transient parts are minimized
-    in the begining and end part of the output signal.
-    
-    input:
-        x: the input signal 
-        window_len: the dimension of the smoothing window; should be an odd integer
-        window: the type of window from 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'
-            flat window will produce a moving average smoothing.
-
-    output:
-        the smoothed signal
-        
-    example:
-
-    t=linspace(-2,2,0.1)
-    x=sin(t)+randn(len(t))*0.1
-    y=smooth(x)
-    
-    see also: 
-    
-    numpy.hanning, numpy.hamming, numpy.bartlett, numpy.blackman, numpy.convolve
-    scipy.signal.lfilter
- 
-    TODO: the window parameter could be the window itself if an array instead of a string   
-    """
-
-    if x.ndim != 1:
-        raise ValueError, "smooth only accepts 1 dimension arrays."
-
-    if x.size < window_len:
-        raise ValueError, "Input vector needs to be bigger than window size."
-
-
-    if window_len<3:
-        return x
-
-
-    if not window in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
-        raise ValueError, "Window is on of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'"
-
-
-    s=numpy.r_[x[window_len-1:0:-1],x,x[-1:-window_len:-1]]
-    #print(len(s))
-    if window == 'flat': #moving average
-        w=numpy.ones(window_len,'d')
-    else:
-        w=eval('numpy.'+window+'(window_len)')
-
-    y=numpy.convolve(w/w.sum(),s,mode='valid')
-    return y
-    
-def adjust_spines(ax,spines):
-    for loc, spine in ax.spines.iteritems():
-        if loc in spines:
-            spine.set_position(('outward',10)) # outward by 10 points
-            spine.set_smart_bounds(True)
-            #spine.set_linewidth(3)
-        else:
-            spine.set_color('none') # don't draw spine
-
-    # turn off ticks where there is no spine
-    if 'left' in spines:
-        ax.yaxis.set_ticks_position('left')
-    else:
-        # no yaxis ticks
-        ax.yaxis.set_ticks([])
-
-    if 'bottom' in spines:
-        ax.xaxis.set_ticks_position('bottom')
-    else:
-        # no xaxis ticks
-        ax.xaxis.set_ticks([])
-
 def size(nestedList):
 	rowcount = 0
 	colcount = []
@@ -114,7 +30,22 @@ def size(nestedList):
 		rowcount += 1
 		colcount.append(len(column))
 	return (rowcount,tuple(colcount))
-		
+def xcorr(first,second,dt=0.001,window=0.2,savename=None):
+	length = min(len(first),len(second))
+	diffs = array([first[i]-second[j] for i in xrange(length) for j in xrange(length)])
+	bins = arange(-window,window,dt)
+	'''
+	counts = []
+	for i in bins:
+		print (i-.5)*dt,(i+.5)*dt
+		counts.append(sum((diffs>((i-.5)*dt)) & (diffs<((i+.5)*dt))))
+	'''
+	counts = bincount(digitize(diffs,bins))
+	#counts -= len(diffs)*dt/float(max(first[-1],second[-1]))
+	#counts /= float(length)
+	if savename:
+		cPickle.dump((bins,counts),open(savename,'wb'))
+	return (bins[1:],counts[1:-1])			
  
 def delete(nestedList, indices):
 	for index in indices:
@@ -150,17 +81,10 @@ def binary2spiketime(spikeTimes,binSize=0.001,neuron_census=0):
 			for neuron,spikeTime in np.transpose(np.array(np.where(spikeTimes==1))):
 				answer[neuron].append(spikeTime)
 			return answer
+			
+			
 def flatten(aList):
 	return [item for sublist in aList for item in sublist]
-
-
-def reshape(data,rowLength): #Not working better than transpose
-	#Assume data is a numpy array
-	#print 'Data Passed to Reshape ', data
-	#print len(data), rowLength, len(data)/rowLength
-	colLength = len(data)/rowLength
-	shortData = list(data[0: int(colLength*rowLength)])
-	return np.reshape(np.array(shortData),(colLength, rowLength))
 
 def toString(spikeTrain): return ''.join([str(spike) for spike in spikeTrain])
 
@@ -170,7 +94,22 @@ def fromFileRasters(filename):
 def makeKeysStrings(data):
 	for key,_ in data.iteritems(): data[str(key)]=data.pop(key)
 	return data
+
+def raster_plot(spiketimes):
+	trains = map(spiketime2binary,spiketimes)
+	cutoff = map(min,trains)
 	
+	trains = array([train[:cutoff] for train in trains])
+	
+	fig = figure()
+	ax = fig.add_subplot(111)
+	ax.imshow(self.images, aspect='auto', cmap=cm.bone_r, interpolation='nearest')
+	ax.set_bgcolor('none')
+	adjust_spines(ax,['bottom','left'])
+	ax.set_xlabel('Time (ms)')
+	ax.set_ylabel('Neuron')
+	return fig
+		
 def toArray(dictionary):
 	rowCount =max(dictionary)+1
 	colCount=max(max(x) for x in dictionary.values())+1
